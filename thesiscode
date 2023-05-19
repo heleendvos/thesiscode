@@ -24,15 +24,13 @@ compas = compas.drop(['id','name','first','last','dob','screening_date','r_offen
 [train, test] = train_test_split(compas,test_size=0.2)
 X_train = train.drop('is_recid',axis=1)
 y_train =train['is_recid']
-#name X_test for the testset by selcting all columns of df test except is_recid
 X_test = test.drop('is_recid',axis=1)
-#name y_test by selecting column is_recid of df test
 y_test = test['is_recid']
-ordinal_cat_cols = [   'v_score_text' ] #defineer lijst met kolommen die moeten worden geencodeerd
-oe = OrdinalEncoder() #maak een ordinal encoder object
-ohe = OneHotEncoder(handle_unknown='ignore')
+ordinal_cat_cols = [   'v_score_text' ] 
+oe = OrdinalEncoder() 
+ohe = OneHotEncoder(handle_unknown='ignore') https://scikit-learn.org/stable/modules/generated/sklearn.preprocessing.OneHotEncoder.html
 onehot_cat_cols = ['sex','race','c_charge_degree','type_of_assessment', 'v_type_of_assessment','c_charge_desc']
-scaler=StandardScaler()
+scaler=StandardScaler() #https://towardsdatascience.com/a-simple-example-of-pipeline-in-machine-learning-with-scikit-learn-e726ffbb6976
 preprocessor= ColumnTransformer( 
     transformers = [
         ('cat',ohe,onehot_cat_cols),
@@ -44,42 +42,42 @@ rf_pipeline = Pipeline(steps =[
     ('rf', RandomForestRegressor(n_estimators =100,random_state=42))
     ]) 
 
-rf_pipeline.fit(X_train,y_train.ravel())
+rf_pipeline.fit(X_train,y_train.ravel()) #https://stackoverflow.com/questions/67828280/why-do-i-need-to-use-ravel-in-this-case
 
 y_pred_rf = np.round(rf_pipeline.predict(X_test))
-conf_mat_rf = confusion_matrix(y_test, y_pred_rf)
-print(classification_report(y_test,y_pred_rf))
+conf_mat_rf = confusion_matrix(y_test, y_pred_rf) #https://scikit-learn.org/stable/modules/generated/sklearn.metrics.confusion_matrix.html
+print(classification_report(y_test,y_pred_rf)) #https://scikit-learn.org/stable/modules/generated/sklearn.metrics.classification_report.html
 
 
 lr_pipeline = Pipeline(steps = [
     ('preprocessor',preprocessor),
     ('lr', LogisticRegression(max_iter=1000, random_state=42))
     ])
+    #https://scikit-learn.org/stable/modules/compose.html
 
 
 lr_pipeline.fit(X_train,y_train.ravel())
 y_pred_lr = lr_pipeline.predict(X_test)
-conf_mat_lr = confusion_matrix(y_test, y_pred_lr)
+conf_mat_lr = confusion_matrix(y_test, y_pred_lr) ##https://scikit-learn.org/stable/modules/generated/sklearn.metrics.confusion_matrix.html
 print(classification_report(y_test,y_pred_lr))
 
 calibrated_lr_pipeline = CalibratedClassifierCV(lr_pipeline, cv='prefit')
 calibrated_lr_pipeline.fit(X_train, y_train.ravel())
 y_pred_calibrated_lr = calibrated_lr_pipeline.predict(X_test)
-conf_mat_calibrated_lr = confusion_matrix(y_test, y_pred_calibrated_lr)
+conf_mat_calibrated_lr = confusion_matrix(y_test, y_pred_calibrated_lr) 
 print(classification_report(y_test, y_pred_calibrated_lr))
 
-# Create a new pipeline for the Random Forest classifier with calibration
 rf_classifier_pipeline = Pipeline(steps=[
     ('preprocessor', preprocessor),
     ('rf', RandomForestClassifier(n_estimators=100, random_state=42))
 ])
 
-
+#https://github.com/scikit-learn/scikit-learn/issues/8710
 rf_classifier_pipeline.fit(X_train, y_train.ravel())
-calibrated_rf_classifier_pipeline = CalibratedClassifierCV(rf_classifier_pipeline, cv='prefit')
+calibrated_rf_classifier_pipeline = CalibratedClassifierCV(rf_classifier_pipeline, cv='prefit') 
 calibrated_rf_classifier_pipeline.fit(X_train, y_train.ravel())
 y_pred_calibrated_rf = calibrated_rf_classifier_pipeline.predict(X_test)
-conf_mat_calibrated_rf = confusion_matrix(y_test, y_pred_calibrated_rf)
+conf_mat_calibrated_rf = confusion_matrix(y_test, y_pred_calibrated_rf) #https://scikit-learn.org/stable/modules/generated/sklearn.metrics.confusion_matrix.html
 print(classification_report(y_test, y_pred_calibrated_rf))
 
 tp_privileged = np.sum((y_test == 1) & (y_pred_rf == 1) & (X_test['race'] == 'Caucasian'))
@@ -87,6 +85,7 @@ fp_privileged = np.sum((y_test == 0) & (y_pred_rf == 1) & (X_test['race'] == 'Ca
 tn_privileged = np.sum((y_test == 0) & (y_pred_rf == 0) & (X_test['race'] == 'Caucasian'))
 fn_privileged = np.sum((y_test == 1) & (y_pred_rf == 0) & (X_test['race'] == 'Caucasian'))
 
+#https://towardsdatascience.com/analysing-fairness-in-machine-learning-with-python-96a9ab0d0705
 fpr_privileged = fp_privileged / (fp_privileged + tn_privileged)
 fnr_privileged = fn_privileged / (fn_privileged + tp_privileged)
 
@@ -104,7 +103,7 @@ print("FPR for unprivileged group (Black):", fpr_unprivileged)
 print("FNR for unprivileged group (Black):", fnr_unprivileged)
 
 
-conf_mat = confusion_matrix(y_test, y_pred_rf)
+conf_mat = confusion_matrix(y_test, y_pred_rf) #https://scikit-learn.org/stable/modules/generated/sklearn.metrics.confusion_matrix.html
 privileged_indices = X_test['race'] == 'Caucasian'
 unprivileged_indices = X_test['race'] != 'Caucasian'
 equalized_odds_privileged = abs(fpr_privileged - fpr_unprivileged)
@@ -112,7 +111,7 @@ equalized_odds_unprivileged = abs(fnr_privileged - fnr_unprivileged)
 print("Equalized odds for privileged group (White):", equalized_odds_privileged)
 print("Equalized odds for unprivileged group (Black):", equalized_odds_unprivileged)
 
-ohe_race = OneHotEncoder(sparse=False)
+ohe_race = OneHotEncoder(sparse=False) #https://stackoverflow.com/questions/66580608/meaning-of-sparse-false-pre-processing-data-with-onehotencoder
 race_encoded = ohe_race.fit_transform(train['race'].values.reshape(-1, 1))
 base_rates = race_encoded.T.dot(train['is_recid']) / race_encoded.sum(axis=0)
 test_race_encoded = ohe_race.transform(test['race'].values.reshape(-1, 1))
@@ -121,7 +120,7 @@ y_pred_rf_adjusted = np.where(y_pred_rf > thresholds[test_race_encoded.argmax(ax
 y_pred_lr_adjusted = np.where(y_pred_lr > thresholds[test_race_encoded.argmax(axis=1)], 1, 0)
 
 
-rf_pipeline.fit(X_train, y_train.ravel())
+rf_pipeline.fit(X_train, y_train.ravel()) #https://towardsdatascience.com/a-simple-example-of-pipeline-in-machine-learning-with-scikit-learn-e726ffbb6976
 y_pred_rf = np.round(rf_pipeline.predict(X_test))
 
 lr_pipeline.fit(X_train, y_train.ravel())
@@ -134,7 +133,6 @@ print(classification_report(y_test, y_pred_rf_adjusted))
 conf_mat_lr_adjusted = confusion_matrix(y_test, y_pred_lr_adjusted)
 print("Logistic Regression - Adjusted for Demographic Parity:")
 print(classification_report(y_test, y_pred_lr_adjusted))
-
 
 
 rf_pipeline.fit(X_train, y_train.ravel())
@@ -217,7 +215,7 @@ y_pred_gb = gb_pipeline.predict(X_test)
 conf_mat_gb = confusion_matrix(y_test, y_pred_gb)
 print(classification_report(y_test,y_pred_gb))
 
-
+#https://scikit-learn.org/stable/modules/generated/sklearn.svm.LinearSVC.html
 svm_pipeline = Pipeline(steps = [
 ('preprocessor', preprocessor),
 ('svm', LinearSVC(random_state=42))
@@ -248,6 +246,11 @@ lr_pipeline = Pipeline(steps=[
     ('lr', LogisticRegression(max_iter=1000, random_state=42))
 ])
 
+#https://scikit-learn.org/stable/modules/grid_search.html
+#https://scikit-learn.org/stable/modules/generated/sklearn.model_selection.GridSearchCV.html#sklearn.model_selection.GridSearchCV
+#https://scikit-learn.org/stable/modules/generated/sklearn.model_selection.GridSearchCV.html#sklearn.model_selection.GridSearchCV.n_features_in_
+#https://scikit-learn.org/stable/modules/generated/sklearn.model_selection.GridSearchCV.html#sklearn.model_selection.GridSearchCV.fit
+https://towardsdatascience.com/grid-search-for-model-tuning-3319b259367e
 rf_grid_search = GridSearchCV(rf_pipeline, rf_param_grid, cv=5)
 lr_grid_search = GridSearchCV(lr_pipeline, lr_param_grid, cv=5)
 rf_grid_search.fit(X_train, y_train.ravel())
@@ -298,4 +301,75 @@ print(classification_report(y_test, y_pred_rf))
 
 y_pred_lr = best_lr_pipeline.predict(X_test)
 conf_mat_lr = confusion_matrix(y_test, y_pred_lr)
+print(classification_report(y_test, y_pred_lr))
+
+#undersampling only accepted the code when I wrote it again and then made changes
+#https://imbalanced-learn.org/stable/under_sampling.html
+#https://www.kaggle.com/code/residentmario/undersampling-and-oversampling-imbalanced-data
+#https://datascience.stackexchange.com/questions/66302/resampling-with-python-smote
+#https://stackoverflow.com/questions/56125380/resampling-data-using-smote-from-imblearn-with-3d-numpy-arrays
+#https://imbalanced-learn.org/stable/over_sampling.html
+
+compas = pd.read_csv('violent-parsed_filt.csv')
+compas = compas.drop_duplicates(subset=compas.columns.values.tolist()[1:], keep='first')
+compas = compas.fillna("0")
+compas = compas.drop(['id', 'name', 'first', 'last', 'dob', 'screening_date', 'r_offense_date',
+                      'c_jail_in', 'c_jail_out', 'r_jail_in', 'vr_offense_date', 'score_text',
+                      'is_violent_recid', 'event', 'r_charge_degree', 'r_days_from_arrest',
+                      'r_charge_desc', 'violent_recid', 'vr_charge_degree', 'vr_charge_desc'], axis=1)
+
+[train, test] = train_test_split(compas, test_size=0.2)
+X_train = train.drop('is_recid', axis=1)
+y_train = train['is_recid']
+
+
+rus = RandomUnderSampler(random_state=42)
+X_train_resampled, y_train_resampled = rus.fit_resample(X_train, y_train)
+X_test = test.drop('is_recid', axis=1)
+y_test = test['is_recid']
+
+
+ordinal_cat_cols = ['v_score_text']
+oe = OrdinalEncoder()
+y_train_resampled = oe.fit_transform(y_train_resampled.values.reshape(-1, 1))
+y_test = oe.fit_transform(y_test.values.reshape(-1, 1))
+
+ohe = OneHotEncoder(handle_unknown='ignore')
+onehot_cat_cols = ['sex', 'race', 'c_charge_degree', 'type_of_assessment',
+                   'v_type_of_assessment', 'c_charge_desc']
+
+scaler = StandardScaler()
+
+preprocessor = ColumnTransformer(
+    transformers=[
+        ('cat', ohe, onehot_cat_cols),
+        ('ord', oe, ordinal_cat_cols)
+    ])
+
+rf_pipeline = Pipeline(steps=[
+    ('preprocessor', preprocessor),
+    ('rf', RandomForestRegressor(n_estimators=100, random_state=42))
+])
+
+rf_pipeline.fit(X_train_resampled, y_train_resampled.ravel())
+
+y_pred_rf = np.round(rf_pipeline.predict(X_test))
+
+conf_mat_rf = confusion_matrix(y_test, y_pred_rf)
+
+print("Random Forest Model:")
+print(classification_report(y_test, y_pred_rf))
+
+lr_pipeline = Pipeline(steps=[
+    ('preprocessor', preprocessor),
+    ('lr', LogisticRegression(max_iter=1000, random_state=42))
+])
+
+lr_pipeline.fit(X_train_resampled, y_train_resampled.ravel())
+
+y_pred_lr = lr_pipeline.predict(X_test)
+
+conf_mat_lr = confusion_matrix(y_test, y_pred_lr)
+
+print("Logistic Regression Model:")
 print(classification_report(y_test, y_pred_lr))
