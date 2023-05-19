@@ -1,0 +1,301 @@
+import pandas as pd
+from sklearn.tree import DecisionTreeClassifier
+from sklearn.tree import plot_tree
+import matplotlib.pyplot as plt
+from sklearn.ensemble import RandomForestRegressor
+from sklearn.preprocessing import OrdinalEncoder,  StandardScaler
+from sklearn.preprocessing import OneHotEncoder
+import numpy as np
+import random
+from sklearn.model_selection import train_test_split, GridSearchCV
+from sklearn.compose import ColumnTransformer
+from sklearn.pipeline import Pipeline
+from sklearn.metrics import confusion_matrix
+from sklearn.linear_model import LogisticRegression
+from sklearn.metrics import classification_report
+from sklearn.calibration import CalibratedClassifierCV
+from sklearn.ensemble import GradientBoostingClassifier
+from sklearn.svm import LinearSVC, SVC
+
+compas = pd.read_csv('violent-parsed_filt.csv')
+compas = compas.drop_duplicates(subset = compas.columns.values.tolist()[1:], keep='first')
+compas = compas.fillna("0")
+compas = compas.drop(['id','name','first','last','dob','screening_date','r_offense_date','c_jail_in','c_jail_out','r_jail_in','vr_offense_date','score_text','is_violent_recid','event','r_charge_degree','r_days_from_arrest','r_charge_desc','violent_recid','vr_charge_degree','vr_charge_desc'],axis=1)
+[train, test] = train_test_split(compas,test_size=0.2)
+X_train = train.drop('is_recid',axis=1)
+y_train =train['is_recid']
+#name X_test for the testset by selcting all columns of df test except is_recid
+X_test = test.drop('is_recid',axis=1)
+#name y_test by selecting column is_recid of df test
+y_test = test['is_recid']
+ordinal_cat_cols = [   'v_score_text' ] #defineer lijst met kolommen die moeten worden geencodeerd
+oe = OrdinalEncoder() #maak een ordinal encoder object
+ohe = OneHotEncoder(handle_unknown='ignore')
+onehot_cat_cols = ['sex','race','c_charge_degree','type_of_assessment', 'v_type_of_assessment','c_charge_desc']
+scaler=StandardScaler()
+preprocessor= ColumnTransformer( 
+    transformers = [
+        ('cat',ohe,onehot_cat_cols),
+        ('ord',oe,ordinal_cat_cols),
+        #('scale',scaler,X_train.columns)
+        ])
+rf_pipeline = Pipeline(steps =[
+    ('preprocessor',preprocessor),
+    ('rf', RandomForestRegressor(n_estimators =100,random_state=42))
+    ]) 
+
+rf_pipeline.fit(X_train,y_train.ravel())
+
+y_pred_rf = np.round(rf_pipeline.predict(X_test))
+conf_mat_rf = confusion_matrix(y_test, y_pred_rf)
+print(classification_report(y_test,y_pred_rf))
+
+
+lr_pipeline = Pipeline(steps = [
+    ('preprocessor',preprocessor),
+    ('lr', LogisticRegression(max_iter=1000, random_state=42))
+    ])
+
+
+lr_pipeline.fit(X_train,y_train.ravel())
+y_pred_lr = lr_pipeline.predict(X_test)
+conf_mat_lr = confusion_matrix(y_test, y_pred_lr)
+print(classification_report(y_test,y_pred_lr))
+
+calibrated_lr_pipeline = CalibratedClassifierCV(lr_pipeline, cv='prefit')
+calibrated_lr_pipeline.fit(X_train, y_train.ravel())
+y_pred_calibrated_lr = calibrated_lr_pipeline.predict(X_test)
+conf_mat_calibrated_lr = confusion_matrix(y_test, y_pred_calibrated_lr)
+print(classification_report(y_test, y_pred_calibrated_lr))
+
+# Create a new pipeline for the Random Forest classifier with calibration
+rf_classifier_pipeline = Pipeline(steps=[
+    ('preprocessor', preprocessor),
+    ('rf', RandomForestClassifier(n_estimators=100, random_state=42))
+])
+
+
+rf_classifier_pipeline.fit(X_train, y_train.ravel())
+calibrated_rf_classifier_pipeline = CalibratedClassifierCV(rf_classifier_pipeline, cv='prefit')
+calibrated_rf_classifier_pipeline.fit(X_train, y_train.ravel())
+y_pred_calibrated_rf = calibrated_rf_classifier_pipeline.predict(X_test)
+conf_mat_calibrated_rf = confusion_matrix(y_test, y_pred_calibrated_rf)
+print(classification_report(y_test, y_pred_calibrated_rf))
+
+tp_privileged = np.sum((y_test == 1) & (y_pred_rf == 1) & (X_test['race'] == 'Caucasian'))
+fp_privileged = np.sum((y_test == 0) & (y_pred_rf == 1) & (X_test['race'] == 'Caucasian'))
+tn_privileged = np.sum((y_test == 0) & (y_pred_rf == 0) & (X_test['race'] == 'Caucasian'))
+fn_privileged = np.sum((y_test == 1) & (y_pred_rf == 0) & (X_test['race'] == 'Caucasian'))
+
+fpr_privileged = fp_privileged / (fp_privileged + tn_privileged)
+fnr_privileged = fn_privileged / (fn_privileged + tp_privileged)
+
+tp_unprivileged = np.sum((y_test == 1) & (y_pred_rf == 1) & (X_test['race'] == 'African-American'))
+fp_unprivileged = np.sum((y_test == 0) & (y_pred_rf == 1) & (X_test['race'] == 'African-American'))
+tn_unprivileged = np.sum((y_test == 0) & (y_pred_rf == 0) & (X_test['race'] == 'African-American'))
+fn_unprivileged = np.sum((y_test == 1) & (y_pred_rf == 0) & (X_test['race'] == 'African-American'))
+
+fpr_unprivileged = fp_unprivileged / (fp_unprivileged + tn_unprivileged)
+fnr_unprivileged = fn_unprivileged / (fn_unprivileged + tp_unprivileged)
+
+print("FPR for privileged group (White):", fpr_privileged)
+print("FNR for privileged group (White):", fnr_privileged)
+print("FPR for unprivileged group (Black):", fpr_unprivileged)
+print("FNR for unprivileged group (Black):", fnr_unprivileged)
+
+
+conf_mat = confusion_matrix(y_test, y_pred_rf)
+privileged_indices = X_test['race'] == 'Caucasian'
+unprivileged_indices = X_test['race'] != 'Caucasian'
+equalized_odds_privileged = abs(fpr_privileged - fpr_unprivileged)
+equalized_odds_unprivileged = abs(fnr_privileged - fnr_unprivileged)
+print("Equalized odds for privileged group (White):", equalized_odds_privileged)
+print("Equalized odds for unprivileged group (Black):", equalized_odds_unprivileged)
+
+ohe_race = OneHotEncoder(sparse=False)
+race_encoded = ohe_race.fit_transform(train['race'].values.reshape(-1, 1))
+base_rates = race_encoded.T.dot(train['is_recid']) / race_encoded.sum(axis=0)
+test_race_encoded = ohe_race.transform(test['race'].values.reshape(-1, 1))
+thresholds = base_rates.mean() * np.ones_like(base_rates)
+y_pred_rf_adjusted = np.where(y_pred_rf > thresholds[test_race_encoded.argmax(axis=1)], 1, 0)
+y_pred_lr_adjusted = np.where(y_pred_lr > thresholds[test_race_encoded.argmax(axis=1)], 1, 0)
+
+
+rf_pipeline.fit(X_train, y_train.ravel())
+y_pred_rf = np.round(rf_pipeline.predict(X_test))
+
+lr_pipeline.fit(X_train, y_train.ravel())
+y_pred_lr = lr_pipeline.predict(X_test)
+
+conf_mat_rf_adjusted = confusion_matrix(y_test, y_pred_rf_adjusted)
+print("Random Forest - Adjusted for Demographic Parity:")
+print(classification_report(y_test, y_pred_rf_adjusted))
+
+conf_mat_lr_adjusted = confusion_matrix(y_test, y_pred_lr_adjusted)
+print("Logistic Regression - Adjusted for Demographic Parity:")
+print(classification_report(y_test, y_pred_lr_adjusted))
+
+
+
+rf_pipeline.fit(X_train, y_train.ravel())
+y_pred_rf = np.round(rf_pipeline.predict(X_test))
+lr_pipeline.fit(X_train, y_train.ravel())
+y_pred_lr = lr_pipeline.predict(X_test)
+
+conf_mat_rf = confusion_matrix(y_test, y_pred_rf)
+print("Random Forest - Original:")
+print(classification_report(y_test, y_pred_rf))
+
+conf_mat_lr = confusion_matrix(y_test, y_pred_lr)
+print("Logistic Regression - Original:")
+print(classification_report(y_test, y_pred_lr))
+
+privileged_indices = X_test['race'] == 'Caucasian'
+unprivileged_indices = X_test['race'] != 'Caucasian'
+
+tp_privileged = np.sum((y_pred_rf == 1) & (y_test == 1) & privileged_indices)
+tp_unprivileged = np.sum((y_pred_rf == 1) & (y_test == 1) & unprivileged_indices)
+fp_privileged = np.sum((y_pred_rf == 1) & (y_test == 0) & privileged_indices)
+fp_unprivileged = np.sum((y_pred_rf == 1) & (y_test == 0) & unprivileged_indices)
+
+fn_privileged = np.sum((y_pred_rf == 0) & (y_test == 1) & privileged_indices)
+fn_unprivileged = np.sum((y_pred_rf == 0) & (y_test == 1) & unprivileged_indices)
+tn_privileged = np.sum((y_pred_rf == 0) & (y_test == 0) & privileged_indices)
+tn_unprivileged = np.sum((y_pred_rf == 0) & (y_test == 0) & unprivileged_indices)
+
+fpr_privileged = fp_privileged / (fp_privileged + tn_privileged)
+fpr_unprivileged = fp_unprivileged / (fp_unprivileged + tn_unprivileged)
+fnr_privileged = fn_privileged / (fn_privileged + tp_privileged)
+fnr_unprivileged = fn_unprivileged / (fn_unprivileged + tp_unprivileged)
+
+equalized_odds_privileged = abs(fpr_privileged - fpr_unprivileged)
+equalized_odds_unprivileged = abs(fnr_privileged - fnr_unprivileged)
+
+print("Equalized odds for privileged group (Caucasian):", equalized_odds_privileged)
+print("Equalized odds for unprivileged group (Non-Caucasian):", equalized_odds_unprivileged)
+
+base_rates = np.sum(y_test) / len(y_test)
+
+thresholds = base_rates * np.ones_like(y_pred_rf)
+y_pred_rf_dem_parity = np.where(y_pred_rf > thresholds, 1, 0)
+y_pred_lr_dem_parity = np.where(y_pred_lr > thresholds, 1, 0)
+
+conf_mat_rf_dem_parity = confusion_matrix(y_test, y_pred_rf_dem_parity)
+print("Random Forest - Adjusted for Demographic Parity:")
+print(classification_report(y_test,y_pred_rf_dem_parity))
+
+conf_mat_lr_dem_parity = confusion_matrix(y_test, y_pred_lr_dem_parity)
+print("Logistic Regression - Adjusted for Demographic Parity:")
+print(classification_report(y_test, y_pred_lr_dem_parity))
+
+y_pred_rf = np.round(rf_pipeline.predict(X_test))
+conf_mat_rf = confusion_matrix(y_test, y_pred_rf)
+group_col = 'race'
+privileged_groups = [{'race': 1}] # assuming 1 means Caucasian
+unprivileged_groups = [{'race': 0}] # assuming 0 means African American
+
+sp_diff = (conf_mat_rf[1,1]/np.sum(conf_mat_rf[1,:])) - (conf_mat_rf[0,1]/np.sum(conf_mat_rf[0,:]))
+print(f"Statistical parity difference: {sp_diff:.3f}")
+
+tpr_priv = conf_mat_rf[1,1]/np.sum(conf_mat_rf[1,:])
+tpr_unpriv = conf_mat_rf[0,1]/np.sum(conf_mat_rf[0,:])
+eopp_diff = tpr_priv - tpr_unpriv
+print(f"Equal opportunity difference: {eopp_diff:.3f}")
+
+ppr_priv = conf_mat_rf[1,1]/np.sum(conf_mat_rf[:,1])
+ppr_unpriv = conf_mat_rf[0,1]/np.sum(conf_mat_rf[:,1])
+prpd_diff = ppr_priv - ppr_unpriv
+print(f"Predictive rate parity difference: {prpd_diff:.3f}")
+
+gb_pipeline = Pipeline(steps = [
+('preprocessor',preprocessor),
+('gb', GradientBoostingClassifier(n_estimators = 100, random_state=42))
+])
+
+gb_pipeline.fit(X_train,y_train.ravel())
+y_pred_gb = gb_pipeline.predict(X_test)
+conf_mat_gb = confusion_matrix(y_test, y_pred_gb)
+print(classification_report(y_test,y_pred_gb))
+
+
+svm_pipeline = Pipeline(steps = [
+('preprocessor', preprocessor),
+('svm', LinearSVC(random_state=42))
+])
+
+svm_pipeline.fit(X_train,y_train.ravel())
+y_pred_svm = svm_pipeline.predict(X_test)
+conf_mat_svm = confusion_matrix(y_test, y_pred_svm)
+print(classification_report(y_test,y_pred_svm))
+
+rf_param_grid = {
+    'rf__n_estimators': [100, 200, 300],  
+    'rf__max_depth': [None, 5, 10]
+}
+
+lr_param_grid = {
+    'lr__C': [0.1, 1.0, 10.0],  
+    'lr__penalty': ['l1', 'l2']
+}
+
+rf_pipeline = Pipeline(steps=[
+    ('preprocessor', preprocessor),
+    ('rf', RandomForestRegressor(random_state=42))
+])
+
+lr_pipeline = Pipeline(steps=[
+    ('preprocessor', preprocessor),
+    ('lr', LogisticRegression(max_iter=1000, random_state=42))
+])
+
+rf_grid_search = GridSearchCV(rf_pipeline, rf_param_grid, cv=5)
+lr_grid_search = GridSearchCV(lr_pipeline, lr_param_grid, cv=5)
+rf_grid_search.fit(X_train, y_train.ravel())
+lr_grid_search.fit(X_train, y_train.ravel())
+
+print("Random Forest Best Parameters:", rf_grid_search.best_params_)
+print("Random Forest Best Score:", rf_grid_search.best_score_)
+
+print("Logistic Regression Best Parameters:", lr_grid_search.best_params_)
+print("Logistic Regression Best Score:", lr_grid_search.best_score_)
+
+
+rf_param_grid = {
+    'rf__n_estimators': [100, 200, 300],
+    'rf__max_depth': [None, 5, 10]
+}
+
+lr_param_grid = {
+    'lr__C': [0.1, 1.0, 10.0],
+    'lr__penalty': ['l1', 'l2']
+}
+rf_pipeline = Pipeline(steps=[
+    ('preprocessor', preprocessor),
+    ('rf', RandomForestRegressor(random_state=42))
+])
+
+lr_pipeline = Pipeline(steps=[
+    ('preprocessor', preprocessor),
+    ('lr', LogisticRegression(max_iter=1000, random_state=42))
+])
+rf_grid_search = GridSearchCV(rf_pipeline, rf_param_grid, cv=5)
+lr_grid_search = GridSearchCV(lr_pipeline, lr_param_grid, cv=5)
+
+rf_grid_search.fit(X_train, y_train.ravel())
+lr_grid_search.fit(X_train, y_train.ravel())
+print("Random Forest Best Parameters:", rf_grid_search.best_params_)
+print("Random Forest Best Score:", rf_grid_search.best_score_)
+
+print("Logistic Regression Best Parameters:", lr_grid_search.best_params_)
+print("Logistic Regression Best Score:", lr_grid_search.best_score_)
+
+best_rf_pipeline = rf_grid_search.best_estimator_
+best_lr_pipeline = lr_grid_search.best_estimator_
+
+y_pred_rf = np.round(best_rf_pipeline.predict(X_test))
+conf_mat_rf = confusion_matrix(y_test, y_pred_rf)
+print(classification_report(y_test, y_pred_rf))
+
+y_pred_lr = best_lr_pipeline.predict(X_test)
+conf_mat_lr = confusion_matrix(y_test, y_pred_lr)
+print(classification_report(y_test, y_pred_lr))
